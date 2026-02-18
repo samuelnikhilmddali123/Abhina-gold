@@ -1,12 +1,16 @@
 {
-    "expo": {
-      "name": "Abhina Gold & Silver",
-      "slug": "abhina-gold-silver",
-      "version": "1.0.0",
-      "orientation": "portrait",
-      "backgroundColor": "#F5F7FB",
-      "primaryColor": "#1E3A8A",
-      "jsEngine": "hermes",
-      "platforms": ["ios", "android", "web"]
-    }
+  "expo": {
+    "name": "Abhinav Gold & Silver",
+    "slug": "abhinav-gold-silver",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "backgroundColor": "#F5F7FB",
+    "primaryColor": "#1E3A8A",
+    "jsEngine": "hermes",
+    "platforms": [
+      "ios",
+      "android",
+      "web"
+    ]
   }
+}

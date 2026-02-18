@@ -27,7 +27,7 @@ const Header = () => {
 
                 {/* Title Section */}
                 <View style={styles.titleRow}>
-                    <Text style={styles.mainTitle}>ABHINA</Text>
+                    <Text style={styles.mainTitle}>ABHINAV</Text>
                     <View style={styles.iconGroup}>
                         <TouchableOpacity style={styles.iconBtn}>
                             <Text style={styles.emojiIcon}>📞</Text>

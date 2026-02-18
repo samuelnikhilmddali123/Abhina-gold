@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, FlatList } from 'react-native';
+import { View, Text, StyleSheet, FlatList, Animated } from 'react-native';
 
 const ALERTS_DATA = [
     {
@@ -25,7 +25,7 @@ const ALERTS_DATA = [
     },
 ];
 
-const AlertsScreen = () => {
+const AlertsScreen = ({ onScroll, headerHeight }) => {
     const renderItem = ({ item }) => (
         <View style={styles.alertCard}>
             <Text style={styles.alertIcon}>{item.icon}</Text>
@@ -41,12 +41,14 @@ const AlertsScreen = () => {
 
     return (
         <View style={styles.container}>
-            <Text style={styles.pageTitle}>Notifications</Text>
-            <FlatList
+            <Animated.FlatList
                 data={ALERTS_DATA}
                 renderItem={renderItem}
                 keyExtractor={item => item.id}
-                contentContainerStyle={styles.listContent}
+                contentContainerStyle={[styles.listContent, { paddingTop: headerHeight }]}
+                onScroll={onScroll}
+                scrollEventThrottle={16}
+                ListHeaderComponent={<Text style={styles.pageTitle}>Notifications</Text>}
             />
         </View>
     );
@@ -91,7 +93,7 @@ const styles = StyleSheet.create({
     alertType: {
         fontSize: 14,
         fontWeight: '700',
-        color: '#1E3A8A',
+        color: '#880E4F',
     },
     alertTime: {
         fontSize: 12,

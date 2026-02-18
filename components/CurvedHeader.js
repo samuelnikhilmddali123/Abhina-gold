@@ -1,120 +1,217 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, Dimensions, TouchableOpacity, Image, Animated } from 'react-native';
 import Svg, { Path, Defs, LinearGradient, Stop } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 
 const { width } = Dimensions.get('window');
 
-const CurvedHeader = ({ onCall, onSearch, onNotify }) => {
+const CurvedHeader = ({ scrollY, onCall, onSearch, onNotify, rates }) => {
     const insets = useSafeAreaInsets();
-    const totalHeight = 240 + insets.top;
+
+    const MAX_HEIGHT = 280 + insets.top;
+    const MIN_HEIGHT = 85 + insets.top;
+    const SCROLL_DISTANCE = 180;
+
+    const headerHeight = scrollY.interpolate({
+        inputRange: [0, SCROLL_DISTANCE],
+        outputRange: [MAX_HEIGHT, MIN_HEIGHT],
+        extrapolate: 'clamp',
+    });
+
+    const contentOpacity = scrollY.interpolate({
+        inputRange: [0, SCROLL_DISTANCE / 2],
+        outputRange: [1, 0],
+        extrapolate: 'clamp',
+    });
+
+    const compactOpacity = scrollY.interpolate({
+        inputRange: [SCROLL_DISTANCE * 0.6, SCROLL_DISTANCE],
+        outputRange: [0, 1],
+        extrapolate: 'clamp',
+    });
+
+    // Helper to format rates safely
+    const getRate = (index, type = 'ask') => {
+        if (!rates || !rates.spot || !rates.spot[index]) return '-';
+        return rates.spot[index][type];
+    };
 
     return (
-        <View style={[styles.container, { height: totalHeight }]}>
-            <View style={StyleSheet.absoluteFill}>
-                <View style={{ flex: 1, backgroundColor: '#FFFFFF' }} />
-            </View>
+        <Animated.View style={[
+            styles.container,
+            { height: headerHeight }
+        ]}>
+            {/* Background Color: Magenta */}
+            <View style={[StyleSheet.absoluteFill, { backgroundColor: '#880E4F' }]} />
 
-            <View style={styles.svgContainer}>
-                <Svg width={width} height={totalHeight} viewBox={`0 0 ${width} ${totalHeight}`} preserveAspectRatio="none">
-                    <Defs>
-                        <LinearGradient id="grad" x1="0" y1="0" x2="1" y2="1">
-                            <Stop offset="0%" stopColor="#1E3A8A" />
-                            <Stop offset="100%" stopColor="#12255a" />
-                        </LinearGradient>
-                    </Defs>
-                    <Path
-                        d={`M0,${180 + insets.top} C${width * 0.4},${220 + insets.top} ${width * 0.75},${40 + insets.top} ${width},${60 + insets.top} V${totalHeight} H0 Z`}
-                        fill="url(#grad)"
-                        stroke="#93C5FD"
-                        strokeWidth="3"
-                    />
-                </Svg>
-            </View>
+            {/* Blue Curve Line Decoration */}
+            <Svg width={width} height={MAX_HEIGHT} style={StyleSheet.absoluteFill}>
+                <Path
+                    d={`M0,${MAX_HEIGHT * 0.6} C${width * 0.3},${MAX_HEIGHT * 0.4} ${width * 0.7},${MAX_HEIGHT * 0.2} ${width},${MAX_HEIGHT * 0.35}`}
+                    stroke="#1E88E5" // Blue color
+                    strokeWidth="3"
+                    fill="none"
+                />
+            </Svg>
 
-            <View style={[styles.overlay, { paddingTop: insets.top + 5 }]}>
-                <View style={styles.topRow}>
-                    <View style={{ width: 80 }} />
-                    <View style={styles.titleContainer}>
-                        <Text style={styles.mainTitle}>ABHINA</Text>
-                        <Text style={styles.subTitle}>Gold & Silver</Text>
-                    </View>
-                    <View style={styles.iconGroup}>
-                        <TouchableOpacity style={styles.iconBtn} onPress={onCall}>
-                            <Text style={styles.emojiIcon}>📞</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity style={styles.iconBtn} onPress={onSearch}>
-                            <Text style={styles.emojiIcon}>🔍</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity style={styles.iconBtn} onPress={onNotify}>
-                            <Text style={styles.emojiIcon}>🔔</Text>
-                        </TouchableOpacity>
-                    </View>
-                </View>
-
-                <View style={styles.diyaContainer}>
+            {/* Main Content Area */}
+            <Animated.View style={[styles.contentContainer, { paddingTop: insets.top + 10, opacity: contentOpacity }]}>
+                {/* Left Side: Large Image */}
+                <View style={styles.leftColumn}>
                     <Image
-                        source={require('../assets/divya.png')}
-                        style={styles.diyaImage}
+                        source={require('../assets/image1.jpeg')}
+                        style={styles.largeImage}
                         resizeMode="contain"
                     />
                 </View>
-            </View>
-        </View>
+
+                {/* Right Side: Icons, Title, Rates */}
+                <View style={styles.rightColumn}>
+                    {/* Top Row: Icons */}
+                    <View style={styles.topIconsRow}>
+                        <TouchableOpacity style={[styles.iconBtn, { backgroundColor: '#25D366' }]} onPress={onCall}>
+                            <Ionicons name="logo-whatsapp" size={20} color="#FFF" />
+                        </TouchableOpacity>
+                        <TouchableOpacity style={[styles.iconBtn, { backgroundColor: 'transparent' }]} onPress={onSearch}>
+                            <Ionicons name="search" size={24} color="#FFF" />
+                        </TouchableOpacity>
+                        <TouchableOpacity style={[styles.iconBtn, { backgroundColor: '#FFD700' }]} onPress={onNotify}>
+                            <Ionicons name="notifications" size={20} color="#FFF" />
+                        </TouchableOpacity>
+                    </View>
+
+                    {/* Middle: Title */}
+                    <View style={styles.titleSection}>
+                        <Text style={styles.mainTitle}>ABHINAV</Text>
+                        <Text style={styles.subTitle}>GOLD & SILVER</Text>
+                    </View>
+
+                    {/* Bottom: Rates Row */}
+                    <View style={styles.ratesRow}>
+                        <View style={styles.rateItem}>
+                            <Text style={styles.rateLabel}>GOLD</Text>
+                            <Text style={styles.rateValue}>{getRate(0)}</Text>
+                        </View>
+                        <View style={styles.rateItem}>
+                            <Text style={styles.rateLabel}>SILVER</Text>
+                            <Text style={styles.rateValue}>{getRate(1)}</Text>
+                        </View>
+                        <View style={styles.rateItem}>
+                            <Text style={styles.rateLabel}>USD</Text>
+                            <Text style={styles.rateValue}>{getRate(2)}</Text>
+                        </View>
+                    </View>
+                </View>
+            </Animated.View>
+
+            {/* Compact Header (Visible when scrolled) */}
+            <Animated.View style={[
+                styles.compactHeader,
+                { paddingTop: insets.top, opacity: compactOpacity }
+            ]}>
+                <Text style={styles.compactTitle}>ABHINAV GOLD</Text>
+            </Animated.View>
+        </Animated.View>
     );
 };
 
 const styles = StyleSheet.create({
     container: {
-        width: '100%',
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        zIndex: 1000,
+        overflow: 'hidden',
+        backgroundColor: '#880E4F',
     },
-    svgContainer: {
-        ...StyleSheet.absoluteFillObject,
-    },
-    overlay: {
+    contentContainer: {
         flex: 1,
-        paddingHorizontal: 16,
-    },
-    topRow: {
         flexDirection: 'row',
-        alignItems: 'flex-start',
-        justifyContent: 'space-between',
-        width: '100%',
+        paddingHorizontal: 10,
     },
-    titleContainer: {
+    leftColumn: {
+        width: '40%',
+        justifyContent: 'center',
         alignItems: 'center',
     },
-    mainTitle: {
-        fontSize: 28,
-        fontWeight: '700',
-        color: '#1E3A8A',
-        letterSpacing: 2,
+    largeImage: {
+        width: '100%',
+        height: '90%',
     },
-    subTitle: {
-        fontSize: 16,
-        color: '#6B7280',
-        fontWeight: '500',
-        marginTop: -3,
+    rightColumn: {
+        width: '60%',
+        paddingLeft: 10,
+        justifyContent: 'space-around',
+        paddingBottom: 20,
     },
-    iconGroup: {
+    topIconsRow: {
         flexDirection: 'row',
+        justifyContent: 'flex-end',
+        alignItems: 'center',
+        marginBottom: 10,
     },
     iconBtn: {
-        marginLeft: 12,
-        padding: 5,
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginLeft: 10,
     },
-    emojiIcon: {
-        fontSize: 20,
-        color: '#1E3A8A',
+    titleSection: {
+        alignItems: 'center',
+        marginBottom: 15,
     },
-    diyaContainer: {
+    mainTitle: {
+        fontSize: 26,
+        fontWeight: 'bold',
+        color: '#FFD700',
+        letterSpacing: 1,
+        textAlign: 'center',
+    },
+    subTitle: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#FFD700',
+        marginTop: 2,
+        letterSpacing: 1,
+        textAlign: 'center',
+    },
+    ratesRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        marginTop: 10,
+    },
+    rateItem: {
+        alignItems: 'center',
+    },
+    rateLabel: {
+        fontSize: 12,
+        color: '#FFD700',
+        fontWeight: 'bold',
+        marginBottom: 4,
+    },
+    rateValue: {
+        fontSize: 14,
+        color: '#FFF',
+        fontWeight: '600',
+    },
+    compactHeader: {
         position: 'absolute',
-        left: 10,
-        top: 60,
+        top: 0,
+        left: 0,
+        right: 0,
+        height: '100%',
+        justifyContent: 'center',
+        alignItems: 'center',
     },
-    diyaImage: {
-        width: 100,
-        height: 100,
+    compactTitle: {
+        fontSize: 18,
+        fontWeight: 'bold',
+        color: '#FFD700',
+        letterSpacing: 1,
     },
 });
 

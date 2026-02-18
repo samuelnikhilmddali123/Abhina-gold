@@ -69,7 +69,7 @@ const styles = StyleSheet.create({
   changeText: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#1E3A8A',
+    color: '#880E4F',
   },
 });
 

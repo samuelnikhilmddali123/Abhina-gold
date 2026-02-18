@@ -1,9 +1,14 @@
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Animated } from 'react-native';
 
-const RatesScreen = () => {
+const RatesScreen = ({ onScroll, headerHeight }) => {
     return (
-        <ScrollView style={styles.container}>
+        <Animated.ScrollView
+            style={styles.container}
+            contentContainerStyle={{ paddingTop: headerHeight, paddingBottom: 100 }}
+            onScroll={onScroll}
+            scrollEventThrottle={16}
+        >
             <Text style={styles.pageTitle}>Detailed Rates</Text>
 
             <View style={styles.section}>
@@ -39,7 +44,7 @@ const RatesScreen = () => {
                     </View>
                 ))}
             </View>
-        </ScrollView>
+        </Animated.ScrollView>
     );
 };
 
@@ -65,7 +70,7 @@ const styles = StyleSheet.create({
     sectionTitle: {
         fontSize: 16,
         fontWeight: '700',
-        color: '#1E3A8A',
+        color: '#880E4F',
         marginBottom: 12,
         borderBottomWidth: 1,
         borderBottomColor: '#F0F0F0',
@@ -87,7 +92,7 @@ const styles = StyleSheet.create({
     },
     buyVal: {
         fontSize: 14,
-        color: '#1E3A8A',
+        color: '#880E4F',
         fontWeight: '700',
         width: 60,
         textAlign: 'right',
