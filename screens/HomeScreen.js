@@ -1,32 +1,33 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, Alert, Modal, FlatList, TextInput, Animated, Easing, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, Alert, Modal, FlatList, TextInput, Animated, Dimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import CurvedHeader from '../components/CurvedHeader';
 import RateTable from '../components/RateTable';
-import NewsScreen from './NewsScreen';
 import RatesScreen from './RatesScreen';
 import AlertsScreen from './AlertsScreen';
+import VideoScreen from './VideoScreen';
+import AdminScreen from './AdminScreen';
+import ScrollingTicker from '../components/ScrollingTicker';
 import { fetchRates } from '../services/api';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-const NEWS_ITEMS = [
-  '✨ Gold rates are currently stable with a slight upward trend.',
-  '💎 New Bridal Collection launched! Visit our gallery now.',
-  '📈 Silver fine prices hit a monthly low - Perfect time to buy!',
-  '⌛ Booking timings extended until 8 PM this Saturday.',
-  '🏆 Trusted by over 10,000 customers for quality & purity.'
-];
-
-const SEAMLESS_NEWS = [...NEWS_ITEMS, ...NEWS_ITEMS]; // Duplicate for seamless looping
 
 const HomeScreen = () => {
   const [rates, setRates] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [autoUpdate, setAutoUpdate] = useState(true);
   const [activeTab, setActiveTab] = useState('home');
   const [modalVisible, setModalVisible] = useState(null); // 'call', 'search', 'notify'
+  const [showAdminScreen, setShowAdminScreen] = useState(false);
   const insets = useSafeAreaInsets();
+
+  const [videos, setVideos] = useState([
+    { id: '1', videoId: 'dQw4w9WgXcQ', title: 'Abhinav Gold & Silver - Quality Purity' },
+  ]);
+
+  const [tickerMessage, setTickerMessage] = useState('Welcome to Abhinav Gold & Silver - Quality Purity Guaranteed');
+
 
   const MOCK_CONTACTS = [
     { id: '1', name: 'Sales Support', number: '08644-224413', icon: 'call' },
@@ -42,7 +43,7 @@ const HomeScreen = () => {
 
   const MOCK_SEARCHES = ['Bridal Gold', 'Engagement Rings', 'Silver Rate Today', 'Temple Jewellery'];
 
-  const scrollX = useRef(new Animated.Value(SCREEN_WIDTH)).current;
+
   const scrollY = useRef(new Animated.Value(0)).current;
 
   const onScroll = Animated.event(
@@ -50,25 +51,12 @@ const HomeScreen = () => {
     { useNativeDriver: false }
   );
 
-  useEffect(() => {
-    const singleSetWidth = NEWS_ITEMS.join('        •        ').length * 9;
 
-    const startAnimation = () => {
-      scrollX.setValue(0);
-      Animated.timing(scrollX, {
-        toValue: -singleSetWidth,
-        duration: 40000,
-        easing: Easing.linear,
-        useNativeDriver: true,
-      }).start(() => startAnimation());
-    };
-
-    startAnimation();
-  }, [scrollX]);
 
   useEffect(() => {
     let isMounted = true;
     const loadRates = async () => {
+      if (!autoUpdate) return; // Skip if in manual mode
       try {
         const data = await fetchRates();
         if (isMounted) setRates(data);
@@ -85,7 +73,7 @@ const HomeScreen = () => {
       isMounted = false;
       clearInterval(intervalId);
     };
-  }, []);
+  }, [autoUpdate]);
 
   if (loading) {
     return (
@@ -95,13 +83,43 @@ const HomeScreen = () => {
     );
   }
 
+  if (showAdminScreen) {
+    return (
+      <AdminScreen
+        onClose={() => setShowAdminScreen(false)}
+        videos={videos}
+        onUpdateVideos={(updatedVideos) => {
+          setVideos(updatedVideos);
+          setShowAdminScreen(false);
+        }}
+        rates={rates}
+        onUpdateRates={(newRates) => {
+          setRates(newRates);
+          setAutoUpdate(false); // Disable auto-update when manual rates are set
+          Alert.alert('Success', 'Rates updated successfully! Auto-refresh disabled.');
+          setShowAdminScreen(false);
+        }}
+        toggleAutoUpdate={() => {
+          setAutoUpdate(true);
+          Alert.alert('Success', 'Auto-refresh enabled!');
+        }}
+        isAutoUpdate={autoUpdate}
+        tickerMessage={tickerMessage}
+        onUpdateTickerMessage={(message) => {
+          setTickerMessage(message);
+          Alert.alert('Success', 'Ticker message updated successfully!');
+        }}
+      />
+    );
+  }
+
   const renderContent = () => {
     switch (activeTab) {
       case 'home':
         return (
           <Animated.ScrollView
             style={styles.scroll}
-            contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 100, paddingTop: 240 + insets.top }]}
+            contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 100, paddingTop: 350 + insets.top }]}
             showsVerticalScrollIndicator={false}
             onScroll={onScroll}
             scrollEventThrottle={16}
@@ -118,22 +136,7 @@ const HomeScreen = () => {
               data={rates?.rtgs || []}
             />
 
-            <View style={styles.sideBySideRow}>
-              <View style={{ flex: 1 }}>
-                <RateTable
-                  title="FUTURES"
-                  columns={['Bid', 'Ask']}
-                  data={rates?.futures || []}
-                />
-              </View>
-              <View style={{ flex: 1 }}>
-                <RateTable
-                  title="NEXT"
-                  columns={['Bid', 'Ask']}
-                  data={rates?.next || []}
-                />
-              </View>
-            </View>
+
 
             <View style={styles.bookingCard}>
               <View style={styles.bookingRow}>
@@ -151,14 +154,16 @@ const HomeScreen = () => {
                 </View>
               </View>
             </View>
+
           </Animated.ScrollView>
         );
-      case 'news':
-        return <NewsScreen onScroll={onScroll} headerHeight={240 + insets.top} />;
+
       case 'rates':
-        return <RatesScreen onScroll={onScroll} headerHeight={240 + insets.top} />;
+        return <RatesScreen onScroll={onScroll} headerHeight={330 + insets.top} />;
       case 'alerts':
-        return <AlertsScreen onScroll={onScroll} headerHeight={240 + insets.top} />;
+        return <AlertsScreen onScroll={onScroll} headerHeight={330 + insets.top} />;
+      case 'videos':
+        return <VideoScreen onScroll={onScroll} headerHeight={330 + insets.top} videoData={videos} />;
       default:
         return null;
     }
@@ -232,6 +237,8 @@ const HomeScreen = () => {
         onCall={() => setModalVisible('call')}
         onSearch={() => setModalVisible('search')}
         onNotify={() => setModalVisible('notify')}
+        onAdmin={() => setShowAdminScreen(true)}
+        showAdmin={activeTab === 'videos'}
         rates={rates}
       />
 
@@ -247,13 +254,17 @@ const HomeScreen = () => {
           onPress={() => setModalVisible(null)}
         >
           <View style={styles.modalWrapper}>
-            {renderModalContent()}
-            <TouchableOpacity
-              style={styles.closeBtn}
-              onPress={() => setModalVisible(null)}
-            >
-              <Text style={styles.closeBtnTxt}>Close</Text>
-            </TouchableOpacity>
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ flexGrow: 1 }}>
+              <TouchableOpacity activeOpacity={1}>
+                {renderModalContent()}
+                <TouchableOpacity
+                  style={styles.closeBtn}
+                  onPress={() => setModalVisible(null)}
+                >
+                  <Text style={styles.closeBtnTxt}>Close</Text>
+                </TouchableOpacity>
+              </TouchableOpacity>
+            </ScrollView>
           </View>
         </TouchableOpacity>
       </Modal>
@@ -262,14 +273,8 @@ const HomeScreen = () => {
         {renderContent()}
       </View>
 
-      {/* News Ticker Bar */}
-      <View style={styles.tickerContainer}>
-        <Animated.View style={[styles.tickerWrapper, { transform: [{ translateX: scrollX }] }]}>
-          <Text style={styles.tickerText}>
-            {SEAMLESS_NEWS.join('        •        ')}
-          </Text>
-        </Animated.View>
-      </View>
+      {/* Global Scrolling Ticker */}
+      <ScrollingTicker rates={rates} tickerMessage={tickerMessage} />
 
       <View style={[styles.tabBar, { paddingBottom: Math.max(insets.bottom, 15) }]}>
         <TouchableOpacity
@@ -283,17 +288,7 @@ const HomeScreen = () => {
           />
           <Text style={activeTab === 'home' ? styles.tabLabelActive : styles.tabLabel}>Home</Text>
         </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.tabItem, activeTab === 'news' && styles.tabItemActive]}
-          onPress={() => setActiveTab('news')}
-        >
-          <Ionicons
-            name={activeTab === 'news' ? 'newspaper' : 'newspaper-outline'}
-            size={24}
-            color={activeTab === 'news' ? '#880E4F' : '#999'}
-          />
-          <Text style={activeTab === 'news' ? styles.tabLabelActive : styles.tabLabel}>News</Text>
-        </TouchableOpacity>
+
         <TouchableOpacity
           style={[styles.tabItem, activeTab === 'rates' && styles.tabItemActive]}
           onPress={() => setActiveTab('rates')}
@@ -312,9 +307,20 @@ const HomeScreen = () => {
           <Ionicons
             name={activeTab === 'alerts' ? 'notifications' : 'notifications-outline'}
             size={24}
-            color={activeTab === 'alerts' ? '#880E4F' : '#999'}
+            color={activeTab === 'alerts' ? '#8B004B' : '#999'}
           />
           <Text style={activeTab === 'alerts' ? styles.tabLabelActive : styles.tabLabel}>Alerts</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.tabItem, activeTab === 'videos' && styles.tabItemActive]}
+          onPress={() => setActiveTab('videos')}
+        >
+          <Ionicons
+            name={activeTab === 'videos' ? 'play-circle' : 'play-circle-outline'}
+            size={24}
+            color={activeTab === 'videos' ? '#8B004B' : '#999'}
+          />
+          <Text style={activeTab === 'videos' ? styles.tabLabelActive : styles.tabLabel}>Videos</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -374,15 +380,8 @@ const styles = StyleSheet.create({
   tabBar: {
     flexDirection: 'row',
     backgroundColor: '#FFFFFF',
-    borderTopWidth: 1,
-    borderTopColor: '#EEEEEE',
-    paddingTop: 10,
+    paddingTop: 0,
     justifyContent: 'space-around',
-    elevation: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
   },
   tabItem: {
     alignItems: 'center',
@@ -416,6 +415,7 @@ const styles = StyleSheet.create({
   },
   modalWrapper: {
     width: '100%',
+    maxHeight: '80%',
     backgroundColor: '#FFFFFF',
     borderRadius: 20,
     padding: 20,
@@ -498,25 +498,68 @@ const styles = StyleSheet.create({
     color: '#999',
     fontWeight: '600',
   },
-  // Ticker Styles
-  tickerContainer: {
-    height: 35,
-    backgroundColor: '#880E4F',
-    flexDirection: 'row',
+  // Admin Styles
+  adminInput: {
+    backgroundColor: '#F3F4F6',
+    borderRadius: 10,
+    padding: 15,
+    marginBottom: 15,
+    fontSize: 16,
+    color: '#333',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  loginBtn: {
+    backgroundColor: '#8B004B',
+    paddingVertical: 15,
+    borderRadius: 10,
     alignItems: 'center',
-    overflow: 'hidden',
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 215, 0, 0.3)', // Subtle gold border
+    marginTop: 5,
   },
-  tickerWrapper: {
-    flexDirection: 'row',
-    width: 5000, // Force a very large width to prevent text wrapping
+  loginBtnTxt: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+    fontSize: 16,
+    letterSpacing: 1,
   },
-  tickerText: {
-    color: '#FFD700',
+  dashboardSection: {
+    backgroundColor: '#FFF5F8',
+    padding: 15,
+    borderRadius: 12,
+    marginBottom: 10,
+  },
+  updateBtn: {
+    backgroundColor: '#FFD700',
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  updateBtnTxt: {
+    color: '#8B004B',
+    fontWeight: '800',
     fontSize: 14,
-    fontWeight: '800', // Bolder for better visibility
-    letterSpacing: 0.5,
+  },
+  videoInputGroup: {
+    marginBottom: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#EEE',
+    paddingBottom: 10,
+  },
+  videoIndexLabel: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#8B004B',
+    marginBottom: 5,
+  },
+  adminInputSmall: {
+    backgroundColor: '#F3F4F6',
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 8,
+    fontSize: 14,
+    color: '#333',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
 });
 
