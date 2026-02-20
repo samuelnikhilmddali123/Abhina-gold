@@ -68,7 +68,7 @@ const HomeScreen = () => {
     };
 
     loadRates();
-    const intervalId = setInterval(loadRates, 30 * 1000);
+    const intervalId = setInterval(loadRates, 1000);
     return () => {
       isMounted = false;
       clearInterval(intervalId);
@@ -132,7 +132,7 @@ const HomeScreen = () => {
 
             <RateTable
               title="PRODUCT"
-              columns={['Buy Rate', 'Sell Rate', 'Stock']}
+              columns={['Buy', 'Sell', 'Stock']}
               data={rates?.rtgs || []}
             />
 

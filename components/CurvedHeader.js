@@ -102,12 +102,12 @@ const CurvedHeader = ({ scrollY, onCall, onSearch, onNotify, onAdmin, showAdmin,
                 <View style={styles.ratesRow}>
                     <View style={styles.rateItem}>
                         <Text style={styles.rateLabel}>GOLD</Text>
-                        <Text style={styles.rateValue}>{getRate(0)}</Text>
+                        <Text style={styles.rateValue}>${getRate(0)}</Text>
                     </View>
                     <View style={styles.rateItemSeparator} />
                     <View style={styles.rateItem}>
                         <Text style={styles.rateLabel}>SILVER</Text>
-                        <Text style={styles.rateValue}>{getRate(1)}</Text>
+                        <Text style={styles.rateValue}>${getRate(1)}</Text>
                     </View>
                     <View style={styles.rateItemSeparator} />
                     <View style={styles.rateItem}>
