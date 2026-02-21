@@ -43,7 +43,7 @@ const RateTable = ({ title, columns, data, highlightAskColor = '#FF0000' }) => {
                                     isAsk && val !== '-' ? { color: highlightAskColor } : null
                                 ]}
                             >
-                                {val === null || val === undefined ? '-' : val.toLocaleString()}
+                                {val === null || val === undefined ? '-' : (typeof val === 'number' ? val.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : val)}
                             </Text>
                         );
                     })}

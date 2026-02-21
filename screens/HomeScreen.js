@@ -11,23 +11,96 @@ import AdminScreen from './AdminScreen';
 import ScrollingTicker from '../components/ScrollingTicker';
 import { fetchRates } from '../services/api';
 
+/** Default adjustments: zero offset for all categories */
+const DEFAULT_ADJUSTMENTS = {
+  gold: { mode: 'amount', value: 0 },
+  silver: { mode: 'amount', value: 0 },
+};
 
+/**
+ * Apply admin adjustments (offset) on top of live rates.
+ * For each spot/rtgs item, if the name contains GOLD or SILVER,
+ * apply the corresponding offset (amount or percent).
+ * Items that don't match either are left untouched.
+ */
+const applyAdjustments = (liveRates, adjustments, showModified) => {
+  if (!liveRates || !showModified) return liveRates;
+
+  const deepClone = JSON.parse(JSON.stringify(liveRates));
+
+  const getDelta = (originalValue, adjustment) => {
+    if (typeof originalValue !== 'number') return 0;
+    if (adjustment.value === 0) return 0;
+    if (adjustment.mode === 'amount') return adjustment.value;
+    // percentage
+    return parseFloat(((originalValue * adjustment.value) / 100).toFixed(2));
+  };
+
+  const getAdjustment = (name) => {
+    const n = (name || '').toUpperCase();
+    if (n.includes('GOLD')) return adjustments.gold;
+    if (n.includes('SILVER')) return adjustments.silver;
+    return null;
+  };
+
+  const adjustNum = (val, adj) => {
+    if (typeof val !== 'number') return val;
+    const delta = getDelta(val, adj);
+    return parseFloat((val + delta).toFixed(2));
+  };
+
+  // Adjust spot rows
+  deepClone.spot = deepClone.spot.map(item => {
+    const adj = getAdjustment(item.name);
+    if (!adj) return item;
+    return {
+      ...item,
+      bid: adjustNum(item.bid, adj),
+      ask: adjustNum(item.ask, adj),
+      high: adjustNum(item.high, adj),
+      low: adjustNum(item.low, adj),
+    };
+  });
+
+  // Adjust RTGS/product rows
+  deepClone.rtgs = deepClone.rtgs.map(item => {
+    const adj = getAdjustment(item.name);
+    if (!adj) return item;
+    return {
+      ...item,
+      sell: adjustNum(item.sell, adj),
+      buy: adjustNum(item.buy, adj),
+    };
+  });
+
+  return deepClone;
+};
 
 const HomeScreen = () => {
-  const [rates, setRates] = useState(null);
+  const [liveRates, setLiveRates] = useState(null); // raw API data
+  const [rates, setRates] = useState(null); // displayed data (live or modified)
   const [loading, setLoading] = useState(true);
   const [autoUpdate, setAutoUpdate] = useState(true);
   const [activeTab, setActiveTab] = useState('home');
-  const [modalVisible, setModalVisible] = useState(null); // 'call', 'search', 'notify'
+  const [modalVisible, setModalVisible] = useState(null);
   const [showAdminScreen, setShowAdminScreen] = useState(false);
   const insets = useSafeAreaInsets();
+
+  // Rate adjustment state
+  const [rateAdjustments, setRateAdjustments] = useState(DEFAULT_ADJUSTMENTS);
+  const [showModified, setShowModified] = useState(false);
+
+  // Use refs so the interval always reads latest values without re-creating
+  const adjustmentsRef = useRef(rateAdjustments);
+  const showModifiedRef = useRef(showModified);
+  useEffect(() => { adjustmentsRef.current = rateAdjustments; }, [rateAdjustments]);
+  useEffect(() => { showModifiedRef.current = showModified; }, [showModified]);
 
   const [videos, setVideos] = useState([
     { id: '1', videoId: 'dQw4w9WgXcQ', title: 'Abhinav Gold & Silver - Quality Purity' },
   ]);
 
   const [tickerMessage, setTickerMessage] = useState('Welcome to Abhinav Gold & Silver - Quality Purity Guaranteed');
-
 
   const MOCK_CONTACTS = [
     { id: '1', name: 'Sales Support', number: '08644-224413', icon: 'call' },
@@ -43,7 +116,6 @@ const HomeScreen = () => {
 
   const MOCK_SEARCHES = ['Bridal Gold', 'Engagement Rings', 'Silver Rate Today', 'Temple Jewellery'];
 
-
   const scrollY = useRef(new Animated.Value(0)).current;
 
   const onScroll = Animated.event(
@@ -51,15 +123,19 @@ const HomeScreen = () => {
     { useNativeDriver: false }
   );
 
-
-
   useEffect(() => {
     let isMounted = true;
+
     const loadRates = async () => {
-      if (!autoUpdate) return; // Skip if in manual mode
+      if (!autoUpdate) return;
       try {
         const data = await fetchRates();
-        if (isMounted) setRates(data);
+        if (isMounted) {
+          setLiveRates(data);
+          // Apply adjustments using ref values so interval doesn't need re-creation
+          const displayed = applyAdjustments(data, adjustmentsRef.current, showModifiedRef.current);
+          setRates(displayed);
+        }
       } catch (error) {
         console.error(error);
       } finally {
@@ -74,6 +150,15 @@ const HomeScreen = () => {
       clearInterval(intervalId);
     };
   }, [autoUpdate]);
+
+  // When showModified or rateAdjustments changed externally (admin action),
+  // immediately re-compute displayed rates from latest live data
+  useEffect(() => {
+    if (liveRates) {
+      const displayed = applyAdjustments(liveRates, rateAdjustments, showModified);
+      setRates(displayed);
+    }
+  }, [showModified, rateAdjustments]);
 
   if (loading) {
     return (
@@ -92,11 +177,27 @@ const HomeScreen = () => {
           setVideos(updatedVideos);
           setShowAdminScreen(false);
         }}
+        // Pass live (raw) rates for display in admin
+        liveRates={liveRates}
+        // Pass current adjustment settings
+        rateAdjustments={rateAdjustments}
+        onSaveAdjustments={(newAdj) => setRateAdjustments(newAdj)}
+        // Mode toggle
+        showModified={showModified}
+        onShowLive={() => {
+          setShowModified(false);
+          Alert.alert('Live Rates', 'Home page now shows live rates.');
+        }}
+        onShowModified={() => {
+          setShowModified(true);
+          Alert.alert('Modified Rates', 'Home page now shows live rates + your adjustments.');
+        }}
+        // Legacy props kept for compatibility
         rates={rates}
         onUpdateRates={(newRates) => {
           setRates(newRates);
-          setAutoUpdate(false); // Disable auto-update when manual rates are set
-          Alert.alert('Success', 'Rates updated successfully! Auto-refresh disabled.');
+          setAutoUpdate(false);
+          Alert.alert('Success', 'Rates updated! Auto-refresh disabled.');
           setShowAdminScreen(false);
         }}
         toggleAutoUpdate={() => {
@@ -135,8 +236,6 @@ const HomeScreen = () => {
               columns={['Buy', 'Sell', 'Stock']}
               data={rates?.rtgs || []}
             />
-
-
 
             <View style={styles.bookingCard}>
               <View style={styles.bookingRow}>

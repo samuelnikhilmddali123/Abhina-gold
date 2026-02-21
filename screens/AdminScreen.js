@@ -1,10 +1,329 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Alert, Modal, Switch, KeyboardAvoidingView, Platform, Keyboard } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import {
+    View, Text, StyleSheet, TextInput, TouchableOpacity,
+    ScrollView, Alert, Modal, Switch, KeyboardAvoidingView,
+    Platform,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ScrollingTicker from '../components/ScrollingTicker';
 
-const AdminScreen = ({ onClose, videos, onUpdateVideos, rates, onUpdateRates, toggleAutoUpdate, isAutoUpdate, tickerMessage, onUpdateTickerMessage }) => {
+// ─── Helper ──────────────────────────────────────────────────────────────────
+/**
+ * Get the USD-INR exchange rate (ask) from liveRates.
+ */
+const getUsdInrRate = (liveRates) => {
+    if (!liveRates?.spot) return null;
+    const usdRow = liveRates.spot.find(
+        (s) => (s.name || '').toUpperCase().includes('USD')
+    );
+    return usdRow ? (usdRow.ask ?? usdRow.bid) : null;
+};
+
+/**
+ * Get a product rate from RTGS list by metal keyword (GOLD/SILVER).
+ * RTGS rates are already in INR — these match the home page product section.
+ */
+const getRtgsMetalRate = (liveRates, metal) => {
+    if (!liveRates?.rtgs) return null;
+    return liveRates.rtgs.find(
+        (r) => (r.name || '').toUpperCase().includes(metal.toUpperCase())
+    ) || null;
+};
+
+/**
+ * Compute the preview value after applying the adjustment.
+ */
+const computePreview = (baseValue, mode, rawValue) => {
+    if (typeof baseValue !== 'number') return '-';
+    const val = parseFloat(rawValue);
+    if (isNaN(val)) return baseValue.toFixed(2);
+    if (mode === 'amount') return (baseValue + val).toFixed(2);
+    if (mode === 'percent') return (baseValue + (baseValue * val) / 100).toFixed(2);
+    return baseValue.toFixed(2);
+};
+
+// ─── Sub-component: one category row ─────────────────────────────────────────
+const AdjustmentRow = ({ label, liveRate, adjustment, onChange }) => {
+    const [inputValue, setInputValue] = useState(
+        adjustment.value !== 0 ? String(adjustment.value) : '0'
+    );
+    const [mode, setMode] = useState(adjustment.mode); // 'amount' | 'percent'
+
+    // RTGS items have 'sell', not 'bid'
+    const baseVal = liveRate?.sell ?? liveRate?.bid ?? null;
+
+    const currentNum = parseFloat(inputValue) || 0;
+    const step = mode === 'percent' ? 0.5 : 1;
+
+    const preview = computePreview(baseVal, mode, String(currentNum));
+
+    const applyAndSave = (newVal) => {
+        const rounded = parseFloat(newVal.toFixed(2));
+        setInputValue(String(rounded));
+        onChange({ mode, value: rounded });
+    };
+
+    const handleDecrease = () => applyAndSave(currentNum - step);
+    const handleIncrease = () => applyAndSave(currentNum + step);
+
+    const handleManualSave = () => {
+        const val = parseFloat(inputValue);
+        if (isNaN(val)) {
+            Alert.alert('Error', 'Please enter a valid number.');
+            return;
+        }
+        onChange({ mode, value: val });
+    };
+
+    return (
+        <View style={rowStyles.container}>
+            {/* Header: label + live sell */}
+            <View style={rowStyles.header}>
+                <View style={rowStyles.labelBadge}>
+                    <Text style={rowStyles.labelText}>{label}</Text>
+                </View>
+                {liveRate && (
+                    <Text style={rowStyles.liveBid}>
+                        Live Sell: <Text style={rowStyles.liveBidVal}>
+                            ₹{typeof baseVal === 'number' ? baseVal.toLocaleString('en-IN', { maximumFractionDigits: 2 }) : '-'}
+                        </Text>
+                    </Text>
+                )}
+            </View>
+
+            {/* Mode toggle */}
+            <View style={rowStyles.modeRow}>
+                <TouchableOpacity
+                    style={[rowStyles.modeBtn, mode === 'amount' && rowStyles.modeBtnActive]}
+                    onPress={() => setMode('amount')}
+                >
+                    <Text style={[rowStyles.modeBtnTxt, mode === 'amount' && rowStyles.modeBtnTxtActive]}>
+                        ₹ Amount
+                    </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                    style={[rowStyles.modeBtn, mode === 'percent' && rowStyles.modeBtnActive]}
+                    onPress={() => setMode('percent')}
+                >
+                    <Text style={[rowStyles.modeBtnTxt, mode === 'percent' && rowStyles.modeBtnTxtActive]}>
+                        % Percent
+                    </Text>
+                </TouchableOpacity>
+            </View>
+
+            {/* ── Stepper row ── */}
+            <View style={rowStyles.stepperRow}>
+                {/* Decrease button */}
+                <TouchableOpacity style={rowStyles.stepBtn} onPress={handleDecrease}>
+                    <Text style={rowStyles.stepBtnTxt}>−</Text>
+                </TouchableOpacity>
+
+                {/* Value display / manual input */}
+                <TextInput
+                    style={rowStyles.stepInput}
+                    keyboardType="numeric"
+                    value={inputValue}
+                    onChangeText={setInputValue}
+                    onBlur={handleManualSave}
+                    textAlign="center"
+                />
+
+                {/* Increase button */}
+                <TouchableOpacity style={[rowStyles.stepBtn, rowStyles.stepBtnIncrease]} onPress={handleIncrease}>
+                    <Text style={rowStyles.stepBtnTxt}>+</Text>
+                </TouchableOpacity>
+            </View>
+
+            {/* Step hint + preview */}
+            <View style={rowStyles.previewRowFull}>
+                <Text style={rowStyles.stepHint}>
+                    Step: {step}{mode === 'percent' ? '%' : ''} &nbsp;|&nbsp; Tap buttons to adjust instantly
+                </Text>
+                <View style={rowStyles.previewBox}>
+                    <Text style={rowStyles.previewLabel}>Preview</Text>
+                    <Text style={rowStyles.previewValue}>
+                        ₹{typeof baseVal === 'number'
+                            ? computePreview(baseVal, mode, String(currentNum))
+                            : '-'}
+                    </Text>
+                </View>
+            </View>
+        </View>
+    );
+};
+
+const rowStyles = StyleSheet.create({
+    container: {
+        backgroundColor: '#FAFAFA',
+        borderRadius: 8,
+        padding: 12,
+        marginBottom: 14,
+        borderWidth: 1,
+        borderColor: '#E8E8E8',
+    },
+    header: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 10,
+    },
+    labelBadge: {
+        backgroundColor: '#880E4F',
+        borderRadius: 4,
+        paddingVertical: 3,
+        paddingHorizontal: 10,
+    },
+    labelText: {
+        color: '#FFF',
+        fontWeight: 'bold',
+        fontSize: 13,
+    },
+    liveBid: {
+        fontSize: 12,
+        color: '#666',
+    },
+    liveBidVal: {
+        color: '#1B5E20',
+        fontWeight: 'bold',
+    },
+    modeRow: {
+        flexDirection: 'row',
+        marginBottom: 10,
+        borderRadius: 6,
+        overflow: 'hidden',
+        borderWidth: 1,
+        borderColor: '#1976D2',
+    },
+    modeBtn: {
+        flex: 1,
+        paddingVertical: 8,
+        alignItems: 'center',
+        backgroundColor: '#FFF',
+    },
+    modeBtnActive: {
+        backgroundColor: '#1976D2',
+    },
+    modeBtnTxt: {
+        color: '#1976D2',
+        fontWeight: '600',
+        fontSize: 13,
+    },
+    modeBtnTxtActive: {
+        color: '#FFF',
+    },
+
+    // Stepper row
+    stepperRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginBottom: 10,
+        gap: 8,
+    },
+    stepBtn: {
+        width: 48,
+        height: 48,
+        borderRadius: 24,
+        backgroundColor: '#D32F2F',
+        justifyContent: 'center',
+        alignItems: 'center',
+        shadowColor: '#000',
+        shadowOpacity: 0.15,
+        shadowRadius: 3,
+        elevation: 3,
+    },
+    stepBtnIncrease: {
+        backgroundColor: '#388E3C',
+    },
+    stepBtnTxt: {
+        color: '#FFF',
+        fontSize: 26,
+        fontWeight: 'bold',
+        lineHeight: 30,
+    },
+    stepInput: {
+        flex: 1,
+        borderWidth: 1,
+        borderColor: '#DDD',
+        borderRadius: 8,
+        padding: 10,
+        fontSize: 22,
+        fontWeight: 'bold',
+        color: '#333',
+        backgroundColor: '#FFF',
+        textAlign: 'center',
+        height: 52,
+    },
+    previewRowFull: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginTop: 4,
+    },
+    stepHint: {
+        fontSize: 11,
+        color: '#999',
+        flex: 1,
+        marginRight: 8,
+    },
+
+    // Legacy (kept to avoid import errors)
+    inputRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10, gap: 10 },
+    input: { flex: 1, borderWidth: 1, borderColor: '#DDD', borderRadius: 6, padding: 9, fontSize: 15, backgroundColor: '#FFF' },
+    previewBox: {
+        backgroundColor: '#E8F5E9',
+        borderRadius: 6,
+        paddingVertical: 8,
+        paddingHorizontal: 12,
+        alignItems: 'center',
+        minWidth: 90,
+    },
+    previewLabel: {
+        fontSize: 10,
+        color: '#388E3C',
+        fontWeight: '600',
+        textTransform: 'uppercase',
+        marginBottom: 2,
+    },
+    previewValue: {
+        fontSize: 15,
+        color: '#1B5E20',
+        fontWeight: 'bold',
+    },
+    saveBtn: {
+        backgroundColor: '#388E3C',
+        borderRadius: 6,
+        paddingVertical: 9,
+        alignItems: 'center',
+        flexDirection: 'row',
+        justifyContent: 'center',
+    },
+    saveBtnTxt: {
+        color: '#FFF',
+        fontWeight: 'bold',
+        fontSize: 13,
+    },
+});
+
+// ─── Main AdminScreen ─────────────────────────────────────────────────────────
+const AdminScreen = ({
+    onClose,
+    videos,
+    onUpdateVideos,
+    liveRates,          // raw live rates (always updating)
+    rateAdjustments,    // { gold: {mode, value}, silver: {mode, value} }
+    onSaveAdjustments,  // (newAdj) => void
+    showModified,       // boolean
+    onShowLive,         // () => void
+    onShowModified,     // () => void
+    // legacy / compat
+    rates,
+    onUpdateRates,
+    toggleAutoUpdate,
+    isAutoUpdate,
+    tickerMessage,
+    onUpdateTickerMessage,
+}) => {
     const insets = useSafeAreaInsets();
     const [isLoggedIn, setIsLoggedIn] = useState(false);
 
@@ -15,36 +334,26 @@ const AdminScreen = ({ onClose, videos, onUpdateVideos, rates, onUpdateRates, to
     const [showPassword, setShowPassword] = useState(false);
 
     // Tabs State
-    const [activeTab, setActiveTab] = useState('users'); // 'users', 'news', 'profile'
+    const [activeTab, setActiveTab] = useState('rates'); // default to rates tab
 
-    // Rate App Logic State
-    const [tempRates, setTempRates] = useState(null);
-    const [adjustmentModalVisible, setAdjustmentModalVisible] = useState(false);
-    const [adjustmentType, setAdjustmentType] = useState('increase'); // 'increase' or 'decrease'
-    const [adjustmentScope, setAdjustmentScope] = useState('all'); // 'all', 'gold', 'silver'
-    const [adjustmentAmount, setAdjustmentAmount] = useState('');
+    // Local copy of adjustments (edited here, saved via onSaveAdjustments)
+    const [localAdj, setLocalAdj] = useState(
+        rateAdjustments || { gold: { mode: 'amount', value: 0 }, silver: { mode: 'amount', value: 0 } }
+    );
 
-    // Video Logic State
+    // Video tab state
     const [tempVideos, setTempVideos] = useState([]);
-
-    // Profile Logic State (Password)
     const [newPassword, setNewPassword] = useState('');
-
-    // Ticker Message Logic State
     const [tempTickerMessage, setTempTickerMessage] = useState('');
 
-    // Initialize logic
     useEffect(() => {
-        if (videos) {
-            setTempVideos(videos.map(v => ({ ...v })));
-        }
-        if (rates) {
-            setTempRates(JSON.parse(JSON.stringify(rates)));
-        }
-        if (tickerMessage !== undefined) {
-            setTempTickerMessage(tickerMessage);
-        }
-    }, [videos, rates, tickerMessage]);
+        if (videos) setTempVideos(videos.map(v => ({ ...v })));
+        if (tickerMessage !== undefined) setTempTickerMessage(tickerMessage);
+    }, [videos, tickerMessage]);
+
+    useEffect(() => {
+        if (rateAdjustments) setLocalAdj(rateAdjustments);
+    }, [rateAdjustments]);
 
     const handleLogin = () => {
         if (username === 'admin' && password === storedPassword) {
@@ -55,150 +364,176 @@ const AdminScreen = ({ onClose, videos, onUpdateVideos, rates, onUpdateRates, to
         }
     };
 
-    // --- Rate Adjustment Logic ---
-    const openAdjustmentModal = (type) => {
-        setAdjustmentType(type);
-        setAdjustmentAmount('');
-        setAdjustmentScope('all');
-        setAdjustmentModalVisible(true);
-    };
+    // ── Rates Tab ───────────────────────────────────────────────────────────────
+    const renderRatesTab = () => {
+        // RTGS rates are already in INR — same as home page product section
+        const goldRtgs = getRtgsMetalRate(liveRates, 'GOLD');
+        const silverRtgs = getRtgsMetalRate(liveRates, 'SILVER');
+        const usdInr = getUsdInrRate(liveRates);
 
-    const applyRateAdjustment = () => {
-        const amount = parseFloat(adjustmentAmount);
-        if (isNaN(amount) || amount <= 0) {
-            Alert.alert('Error', 'Please enter a valid positive amount.');
-            return;
-        }
+        return (
+            <ScrollView
+                style={styles.tabContent}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+            >
+                {/* ── Live Rates Display ─────────────────────────────── */}
+                <View style={styles.card}>
+                    <View style={styles.cardTitleRow}>
+                        <Text style={styles.cardHeader}>📡 Live Rates (₹ INR)</Text>
+                        <View style={styles.liveDot}>
+                            <View style={styles.liveDotCircle} />
+                            <Text style={styles.liveDotTxt}>LIVE</Text>
+                        </View>
+                    </View>
 
-        const newRates = JSON.parse(JSON.stringify(tempRates));
-        const isIncrease = adjustmentType === 'increase';
-        const factor = isIncrease ? 1 : -1;
-        const delta = amount * factor;
+                    {/* All RTGS products — exactly what home page shows */}
+                    {liveRates?.rtgs?.length > 0 ? (
+                        liveRates.rtgs.map((item) => (
+                            <View key={item.id} style={styles.liveProductRow}>
+                                <Text style={styles.liveProductName}>{item.name}</Text>
+                                <View style={styles.liveProductVals}>
+                                    <View style={styles.liveProductValBox}>
+                                        <Text style={styles.liveProductValLabel}>SELL</Text>
+                                        <Text style={styles.liveProductVal}>
+                                            ₹{typeof item.sell === 'number' ? item.sell.toLocaleString('en-IN', { maximumFractionDigits: 2 }) : item.sell}
+                                        </Text>
+                                    </View>
+                                    {item.buy !== '-' && (
+                                        <View style={styles.liveProductValBox}>
+                                            <Text style={styles.liveProductValLabel}>BUY</Text>
+                                            <Text style={[styles.liveProductVal, { color: '#1976D2' }]}>
+                                                ₹{typeof item.buy === 'number' ? item.buy.toLocaleString('en-IN', { maximumFractionDigits: 2 }) : item.buy}
+                                            </Text>
+                                        </View>
+                                    )}
+                                </View>
+                            </View>
+                        ))
+                    ) : (
+                        <Text style={{ color: '#999', textAlign: 'center', padding: 10 }}>Loading rates...</Text>
+                    )}
 
-        // Helper to check scope
-        const shouldAdjust = (name) => {
-            const n = name.toUpperCase();
-            if (adjustmentScope === 'all') return true;
-            if (adjustmentScope === 'gold' && n.includes('GOLD')) return true;
-            if (adjustmentScope === 'silver' && n.includes('SILVER')) return true;
-            return false;
-        };
-
-        // Adjust Spot Rates
-        newRates.spot.forEach(item => {
-            if (shouldAdjust(item.name)) {
-                item.bid = parseFloat((item.bid + delta).toFixed(2));
-                item.ask = parseFloat((item.ask + delta).toFixed(2));
-                item.high = parseFloat((item.high + delta).toFixed(2));
-                item.low = parseFloat((item.low + delta).toFixed(2));
-            }
-        });
-
-        // Adjust Product Rates
-        newRates.rtgs.forEach(item => {
-            if (shouldAdjust(item.name)) {
-                if (item.sell !== '-' && typeof item.sell === 'number') {
-                    item.sell = parseFloat((item.sell + delta).toFixed(2));
-                }
-            }
-        });
-
-        setTempRates(newRates);
-        setAdjustmentModalVisible(false);
-        Alert.alert('Adjusted', `Rates ${isIncrease ? 'increased' : 'decreased'} by ₹${amount}. Click "Show Adjusted" / "Update" to apply to home.`);
-    };
-
-    // --- Tab Content Renderers ---
-
-    const renderUsersTab = () => (
-        <ScrollView
-            style={styles.tabContent}
-            showsVerticalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-        >
-            {/* Rate Adjustment Card */}
-            <View style={styles.card}>
-                <Text style={styles.cardHeader}>Rate Adjustment</Text>
-                <Text style={styles.cardSubtext}>
-                    Adjust silver/gold rates. Enter positive amount to increase or decrease rates.
-                </Text>
-                <View style={styles.actionRow}>
-                    <TouchableOpacity
-                        style={[styles.actionBtn, { backgroundColor: '#D32F2F' }]}
-                        onPress={() => openAdjustmentModal('decrease')}
-                    >
-                        <Text style={styles.actionBtnTxt}>- Decrease Rates</Text>
-                    </TouchableOpacity>
-                    <View style={{ width: 15 }} />
-                    <TouchableOpacity
-                        style={[styles.actionBtn, { backgroundColor: '#388E3C' }]}
-                        onPress={() => openAdjustmentModal('increase')}
-                    >
-                        <Text style={styles.actionBtnTxt}>+ Increase Rates</Text>
-                    </TouchableOpacity>
+                    {/* Reference: USD-INR rate */}
+                    {usdInr && (
+                        <View style={[styles.liveProductRow, { marginTop: 6, borderTopWidth: 1, borderTopColor: '#EEE', paddingTop: 10 }]}>
+                            <Text style={[styles.liveProductName, { color: '#999' }]}>USD-INR Rate</Text>
+                            <Text style={[styles.liveProductVal, { color: '#999' }]}>₹{usdInr.toFixed(2)} / $1</Text>
+                        </View>
+                    )}
                 </View>
 
-                {/* Auto Toggle in Card */}
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 15, justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: '#EEE', paddingTop: 10 }}>
-                    <Text style={{ color: '#666', fontWeight: 'bold' }}>Live Auto-Update</Text>
-                    <Switch
-                        trackColor={{ false: "#767577", true: "#81b0ff" }}
-                        thumbColor={isAutoUpdate ? "#f5dd4b" : "#f4f3f4"}
-                        onValueChange={toggleAutoUpdate}
-                        value={isAutoUpdate}
-                    />
-                </View>
-            </View>
-
-            {/* Current Metal Rates Card */}
-            <View style={styles.card}>
-                <View style={styles.cardTitleRow}>
-                    <Text style={styles.cardHeader}>Current Metal Rates •</Text>
-                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                {/* ── Show Live / Show Modified Toggle ───────────────── */}
+                <View style={styles.card}>
+                    <Text style={styles.cardHeader}>🏠 Home Page Display</Text>
+                    <Text style={styles.cardSubtext}>
+                        Choose whether the home page shows raw live rates or live rates + your adjustments.
+                    </Text>
+                    <View style={styles.toggleRow}>
                         <TouchableOpacity
-                            style={styles.showAdjustedBtn}
-                            onPress={() => onUpdateRates(tempRates)}
+                            style={[styles.toggleBtn, !showModified && styles.toggleBtnActive]}
+                            onPress={onShowLive}
                         >
-                            <Text style={styles.showAdjustedBtnTxt}>Update Home</Text>
+                            <Ionicons
+                                name="wifi"
+                                size={18}
+                                color={!showModified ? '#FFF' : '#1976D2'}
+                                style={{ marginRight: 6 }}
+                            />
+                            <Text style={[styles.toggleBtnTxt, !showModified && styles.toggleBtnTxtActive]}>
+                                Show Live
+                            </Text>
                         </TouchableOpacity>
-                        <TouchableOpacity onPress={() => setTempRates(JSON.parse(JSON.stringify(rates)))}>
-                            <Text style={styles.refreshLink}>Reset</Text>
+
+                        <TouchableOpacity
+                            style={[styles.toggleBtn, showModified && styles.toggleBtnModifiedActive]}
+                            onPress={onShowModified}
+                        >
+                            <Ionicons
+                                name="create"
+                                size={18}
+                                color={showModified ? '#FFF' : '#F57F17'}
+                                style={{ marginRight: 6 }}
+                            />
+                            <Text style={[styles.toggleBtnTxt, showModified && styles.toggleBtnTxtActive]}>
+                                Show Modified
+                            </Text>
                         </TouchableOpacity>
                     </View>
+                    <Text style={styles.toggleStatusTxt}>
+                        {showModified
+                            ? '✏️ Displaying: Live rates + your adjustments'
+                            : '📡 Displaying: Raw live rates'}
+                    </Text>
                 </View>
 
-                {tempRates ? (
-                    <View style={styles.rateTable}>
-                        <View style={styles.tableRow}>
-                            <Text style={[styles.tableHeader, { flex: 2 }]}>Symbol</Text>
-                            <Text style={[styles.tableHeader, { flex: 1, textAlign: 'right' }]}>Bid</Text>
-                            <Text style={[styles.tableHeader, { flex: 1, textAlign: 'right' }]}>Ask</Text>
-                        </View>
-                        {tempRates.spot.map((item) => (
-                            <View key={item.id} style={styles.tableRow}>
-                                <Text style={[styles.tableCell, { flex: 2, fontWeight: 'bold' }]}>{item.name}</Text>
-                                <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>{item.bid}</Text>
-                                <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>{item.ask}</Text>
-                            </View>
-                        ))}
-                        <View style={[styles.tableRow, { marginTop: 10 }]}>
-                            <Text style={[styles.tableHeader, { flex: 2 }]}>Product</Text>
-                            <Text style={[styles.tableHeader, { flex: 1, textAlign: 'right' }]}>Sell</Text>
-                        </View>
-                        {tempRates.rtgs.map((item) => (
-                            <View key={item.id} style={styles.tableRow}>
-                                <Text style={[styles.tableCell, { flex: 2, fontSize: 13 }]}>{item.name}</Text>
-                                <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>{item.sell}</Text>
-                            </View>
-                        ))}
-                    </View>
-                ) : (
-                    <Text style={{ textAlign: 'center', padding: 20, color: '#999' }}>No rates available</Text>
-                )}
-            </View>
-        </ScrollView>
-    );
+                {/* ── Adjustment Controls ────────────────────────────── */}
+                <View style={styles.card}>
+                    <Text style={styles.cardHeader}>⚙️ Rate Adjustments</Text>
+                    <Text style={styles.cardSubtext}>
+                        Set an offset per category. Enter a positive number to increase, negative to decrease.
+                        Changes auto-track live rate movements.
+                    </Text>
 
+                    <AdjustmentRow
+                        label="GOLD"
+                        liveRate={goldRtgs}
+                        adjustment={localAdj.gold}
+                        onChange={(newAdj) => {
+                            const updated = { ...localAdj, gold: newAdj };
+                            setLocalAdj(updated);
+                            onSaveAdjustments(updated);
+                        }}
+                    />
+
+                    <AdjustmentRow
+                        label="SILVER"
+                        liveRate={silverRtgs}
+                        adjustment={localAdj.silver}
+                        onChange={(newAdj) => {
+                            const updated = { ...localAdj, silver: newAdj };
+                            setLocalAdj(updated);
+                            onSaveAdjustments(updated);
+                        }}
+                    />
+
+                    {/* Quick Reset */}
+                    <TouchableOpacity
+                        style={styles.resetBtn}
+                        onPress={() => {
+                            const zero = { gold: { mode: 'amount', value: 0 }, silver: { mode: 'amount', value: 0 } };
+                            setLocalAdj(zero);
+                            onSaveAdjustments(zero);
+                            Alert.alert('Reset', 'All adjustments cleared.');
+                        }}
+                    >
+                        <Ionicons name="refresh-circle-outline" size={16} color="#D32F2F" style={{ marginRight: 5 }} />
+                        <Text style={styles.resetBtnTxt}>Reset All Adjustments to Zero</Text>
+                    </TouchableOpacity>
+                </View>
+
+                {/* ── Auto-Update Toggle ─────────────────────────────── */}
+                <View style={styles.card}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <Text style={styles.cardHeader}>Live Auto-Update</Text>
+                        <Switch
+                            trackColor={{ false: '#767577', true: '#81b0ff' }}
+                            thumbColor={isAutoUpdate ? '#f5dd4b' : '#f4f3f4'}
+                            onValueChange={toggleAutoUpdate}
+                            value={isAutoUpdate}
+                        />
+                    </View>
+                    <Text style={styles.cardSubtext}>
+                        {isAutoUpdate
+                            ? 'Rates refresh from server every second.'
+                            : 'Auto-refresh is OFF.'}
+                    </Text>
+                </View>
+            </ScrollView>
+        );
+    };
+
+    // ── News Tab (unchanged) ────────────────────────────────────────────────────
     const renderNewsTab = () => (
         <ScrollView
             style={styles.tabContent}
@@ -282,6 +617,7 @@ const AdminScreen = ({ onClose, videos, onUpdateVideos, rates, onUpdateRates, to
         </ScrollView>
     );
 
+    // ── Profile Tab (unchanged) ─────────────────────────────────────────────────
     const renderProfileTab = () => (
         <ScrollView
             style={styles.tabContent}
@@ -322,20 +658,17 @@ const AdminScreen = ({ onClose, videos, onUpdateVideos, rates, onUpdateRates, to
         </ScrollView>
     );
 
-    // --- Main Render ---
-
+    // ── Login Screen ────────────────────────────────────────────────────────────
     if (!isLoggedIn) {
         return (
             <View style={[styles.container, { paddingTop: insets.top }]}>
                 <View style={styles.loginContainer}>
-                    {/* Back Arrow */}
                     <TouchableOpacity onPress={onClose} style={styles.backButton}>
                         <Ionicons name="arrow-back" size={24} color="#333" />
                     </TouchableOpacity>
 
                     <Text style={styles.signInTitle}>Sign In</Text>
 
-                    {/* Username Input */}
                     <View style={styles.inputContainer}>
                         <Ionicons name="person-outline" size={20} color="#666" style={styles.inputIcon} />
                         <TextInput
@@ -347,7 +680,6 @@ const AdminScreen = ({ onClose, videos, onUpdateVideos, rates, onUpdateRates, to
                         />
                     </View>
 
-                    {/* Password Input */}
                     <View style={styles.inputContainer}>
                         <Ionicons name="lock-closed-outline" size={20} color="#666" style={styles.inputIcon} />
                         <TextInput
@@ -359,25 +691,20 @@ const AdminScreen = ({ onClose, videos, onUpdateVideos, rates, onUpdateRates, to
                             autoCapitalize="none"
                         />
                         <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
-                            <Ionicons name={showPassword ? "eye-off-outline" : "eye-outline"} size={20} color="#666" />
+                            <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={20} color="#666" />
                         </TouchableOpacity>
                     </View>
-
-                    <TouchableOpacity style={styles.forgotPassword}>
-                        <Text style={styles.forgotPasswordText}>Forgotten Password?</Text>
-                    </TouchableOpacity>
 
                     <TouchableOpacity style={styles.signInButton} onPress={handleLogin}>
                         <Text style={styles.signInButtonText}>Sign In</Text>
                     </TouchableOpacity>
-
                 </View>
-                {/* Global Ticker on Login Page */}
                 <ScrollingTicker rates={rates} tickerMessage={tickerMessage} />
             </View>
         );
     }
 
+    // ── Dashboard ────────────────────────────────────────────────────────────────
     return (
         <KeyboardAvoidingView
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -399,22 +726,20 @@ const AdminScreen = ({ onClose, videos, onUpdateVideos, rates, onUpdateRates, to
 
                 {/* Tabs */}
                 <View style={styles.tabBar}>
-                    {['Users', 'News', 'Profile'].map((tab) => {
-                        const key = tab.toLowerCase(); // 'users', 'news', 'profile' (mapped to profile/store logic)
-                        if (tab === 'Profile') key === 'profile'; // Keep simple logic
+                    {[
+                        { key: 'rates', label: 'Rates', icon: 'trending-up' },
+                        { key: 'news', label: 'News', icon: 'newspaper' },
+                        { key: 'profile', label: 'Profile', icon: 'storefront' },
+                    ].map(({ key, label, icon }) => {
                         const isActive = activeTab === key;
                         return (
                             <TouchableOpacity
-                                key={tab}
+                                key={key}
                                 style={[styles.tabItem, isActive && styles.tabItemActive]}
                                 onPress={() => setActiveTab(key)}
                             >
-                                <Ionicons
-                                    name={tab === 'Users' ? 'people' : tab === 'News' ? 'newspaper' : 'storefront'}
-                                    size={18}
-                                    color={isActive ? '#1976D2' : '#666'}
-                                />
-                                <Text style={[styles.tabTxt, isActive && styles.tabTxtActive]}>{tab === 'Profile' ? 'Profile/Store' : tab}</Text>
+                                <Ionicons name={icon} size={18} color={isActive ? '#1976D2' : '#666'} />
+                                <Text style={[styles.tabTxt, isActive && styles.tabTxtActive]}>{label}</Text>
                             </TouchableOpacity>
                         );
                     })}
@@ -422,84 +747,20 @@ const AdminScreen = ({ onClose, videos, onUpdateVideos, rates, onUpdateRates, to
 
                 {/* Content */}
                 <View style={styles.contentArea}>
-                    {activeTab === 'users' && renderUsersTab()}
+                    {activeTab === 'rates' && renderRatesTab()}
                     {activeTab === 'news' && renderNewsTab()}
                     {activeTab === 'profile' && renderProfileTab()}
                 </View>
 
-                {/* Global Ticker on Dashboard */}
                 <ScrollingTicker rates={rates} tickerMessage={tickerMessage} />
-
-                {/* Adjustment Modal */}
-                <Modal
-                    visible={adjustmentModalVisible}
-                    transparent={true}
-                    animationType="fade"
-                    onRequestClose={() => setAdjustmentModalVisible(false)}
-                >
-                    <View style={styles.modalOverlay}>
-                        <View style={styles.modalContent}>
-                            <Text style={styles.modalTitle}>{adjustmentType === 'increase' ? 'Increase Rates' : 'Decrease Rates'}</Text>
-                            <Text style={styles.modalSubtitle}>
-                                Choose adjustment type and enter value to {adjustmentType}. Example: Enter 100 to {adjustmentType} by ₹100/gram.
-                            </Text>
-
-                            <Text style={styles.label}>Select Item</Text>
-                            <View style={styles.scopeContainer}>
-                                {['all', 'gold', 'silver'].map(scope => (
-                                    <TouchableOpacity
-                                        key={scope}
-                                        style={[styles.scopeBtn, adjustmentScope === scope && styles.scopeBtnActive]}
-                                        onPress={() => setAdjustmentScope(scope)}
-                                    >
-                                        <Text style={[styles.scopeBtnTxt, adjustmentScope === scope && styles.scopeBtnTxtActive]}>
-                                            {scope === 'all' ? 'All Items' : scope === 'gold' ? 'All Gold Items' : 'All Silver Items'}
-                                        </Text>
-                                    </TouchableOpacity>
-                                ))}
-                            </View>
-
-                            <Text style={styles.label}>Amount (₹)</Text>
-                            <TextInput
-                                style={styles.modalInput}
-                                placeholder="Amount to adjust"
-                                keyboardType="numeric"
-                                value={adjustmentAmount}
-                                onChangeText={setAdjustmentAmount}
-                            />
-
-                            <View style={styles.modalActions}>
-                                <TouchableOpacity onPress={() => setAdjustmentModalVisible(false)}>
-                                    <Text style={styles.cancelBtnTxt}>Cancel</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity
-                                    style={[styles.applyBtn, { backgroundColor: adjustmentType === 'increase' ? '#388E3C' : '#D32F2F' }]}
-                                    onPress={applyRateAdjustment}
-                                >
-                                    <Text style={styles.applyBtnTxt}>{adjustmentType === 'increase' ? 'Increase' : 'Decrease'}</Text>
-                                </TouchableOpacity>
-                            </View>
-                        </View>
-                    </View>
-                </Modal>
             </View>
         </KeyboardAvoidingView>
     );
 };
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: '#F5F5F5',
-    },
-    loginCard: {
-        margin: 20,
-        backgroundColor: '#FFF',
-        borderRadius: 10,
-        padding: 25,
-        alignItems: 'center',
-        shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 10, elevation: 5,
-    },
+    container: { flex: 1, backgroundColor: '#F5F5F5' },
     header: {
         flexDirection: 'row',
         justifyContent: 'space-between',
@@ -510,11 +771,7 @@ const styles = StyleSheet.create({
         borderBottomWidth: 1,
         borderBottomColor: '#EEE',
     },
-    headerTitle: {
-        fontSize: 20,
-        fontWeight: 'bold',
-        color: '#333',
-    },
+    headerTitle: { fontSize: 20, fontWeight: 'bold', color: '#333' },
     logoutBtn: {
         flexDirection: 'row',
         backgroundColor: '#D32F2F',
@@ -523,19 +780,8 @@ const styles = StyleSheet.create({
         borderRadius: 5,
         alignItems: 'center',
     },
-    logoutTxt: {
-        color: '#FFF',
-        fontSize: 12,
-        fontWeight: 'bold',
-        marginLeft: 5,
-    },
-    backLink: {
-        padding: 10,
-        paddingHorizontal: 20,
-        flexDirection: 'row',
-        alignItems: 'center',
-    },
-    // Tabs
+    logoutTxt: { color: '#FFF', fontSize: 12, fontWeight: 'bold', marginLeft: 5 },
+    backLink: { padding: 10, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center' },
     tabBar: {
         flexDirection: 'row',
         backgroundColor: '#FFF',
@@ -551,289 +797,141 @@ const styles = StyleSheet.create({
         borderBottomWidth: 2,
         borderBottomColor: 'transparent',
     },
-    tabItemActive: {
-        borderBottomColor: '#1976D2',
-    },
-    tabTxt: {
-        fontSize: 14,
-        color: '#666',
-        marginLeft: 8,
-        fontWeight: '500',
-    },
-    tabTxtActive: {
-        color: '#1976D2',
-        fontWeight: 'bold',
-    },
-    contentArea: {
-        flex: 1,
-        padding: 15,
-    },
-    tabContent: {
-        flex: 1,
-    },
+    tabItemActive: { borderBottomColor: '#1976D2' },
+    tabTxt: { fontSize: 14, color: '#666', marginLeft: 8, fontWeight: '500' },
+    tabTxtActive: { color: '#1976D2', fontWeight: 'bold' },
+    contentArea: { flex: 1, padding: 15 },
+    tabContent: { flex: 1 },
     card: {
         backgroundColor: '#FFF',
         borderRadius: 8,
-        padding: 20,
-        marginBottom: 20,
+        padding: 18,
+        marginBottom: 18,
         borderWidth: 1,
         borderColor: '#E0E0E0',
     },
-    cardHeader: {
-        fontSize: 16,
-        fontWeight: 'bold',
-        color: '#333',
-        marginBottom: 5,
-    },
+    cardHeader: { fontSize: 16, fontWeight: 'bold', color: '#333', marginBottom: 5 },
     cardTitleRow: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        marginBottom: 15,
+        marginBottom: 14,
     },
-    cardSubtext: {
-        fontSize: 12,
-        color: '#777',
-        marginBottom: 20,
+    cardSubtext: { fontSize: 12, color: '#777', marginBottom: 14 },
+
+    // Live rates
+    liveDot: { flexDirection: 'row', alignItems: 'center' },
+    liveDotCircle: {
+        width: 8, height: 8, borderRadius: 4,
+        backgroundColor: '#4CAF50', marginRight: 5,
     },
-    actionRow: {
-        flexDirection: 'row',
-    },
-    actionBtn: {
-        flex: 1,
-        paddingVertical: 12,
-        borderRadius: 5,
+    liveDotTxt: { fontSize: 11, color: '#4CAF50', fontWeight: 'bold', letterSpacing: 1 },
+    liveRateGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 },
+    liveRateCard: {
+        flex: 1, minWidth: '28%',
+        backgroundColor: '#F3F4F6',
+        borderRadius: 8,
+        padding: 10,
         alignItems: 'center',
     },
-    actionBtnTxt: {
-        color: '#FFF',
-        fontWeight: 'bold',
-        fontSize: 14,
+    liveRateName: { fontSize: 11, color: '#666', fontWeight: '600', textAlign: 'center', marginBottom: 4 },
+    liveRateVal: { fontSize: 16, fontWeight: 'bold', color: '#1B5E20' },
+    liveRateSubVal: { fontSize: 11, color: '#888', marginTop: 2 },
+    inrTag: {
+        fontSize: 9, color: '#388E3C', fontWeight: 'bold',
+        backgroundColor: '#E8F5E9', borderRadius: 3,
+        paddingHorizontal: 4, paddingVertical: 1, marginTop: 3,
     },
-    showAdjustedBtn: {
-        backgroundColor: '#FFA000',
-        paddingVertical: 6,
-        paddingHorizontal: 12,
-        borderRadius: 5,
-        marginRight: 15,
+    sectionDividerTxt: {
+        fontSize: 12, color: '#999', fontWeight: 'bold',
+        textTransform: 'uppercase', marginVertical: 8,
+        borderTopWidth: 1, borderTopColor: '#EEE', paddingTop: 8,
     },
-    showAdjustedBtnTxt: {
-        color: '#FFF',
-        fontSize: 12,
-        fontWeight: 'bold',
+    productRow: {
+        flexDirection: 'row', justifyContent: 'space-between',
+        paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: '#F5F5F5',
     },
-    refreshLink: {
-        color: '#1976D2',
-        fontSize: 12,
+    productName: { fontSize: 13, color: '#333', flex: 1 },
+    productSell: { fontSize: 13, color: '#1B5E20', fontWeight: 'bold' },
+
+    // Toggle buttons
+    toggleRow: { flexDirection: 'row', gap: 10, marginBottom: 10 },
+    toggleBtn: {
+        flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+        paddingVertical: 12, borderRadius: 8,
+        borderWidth: 1.5, borderColor: '#1976D2',
+        backgroundColor: '#FFF',
     },
-    // Tables
-    rateTable: {
-        marginTop: 5,
+    toggleBtnActive: { backgroundColor: '#1976D2', borderColor: '#1976D2' },
+    toggleBtnModifiedActive: { backgroundColor: '#F57F17', borderColor: '#F57F17' },
+    toggleBtnTxt: { fontWeight: 'bold', fontSize: 14, color: '#1976D2' },
+    toggleBtnTxtActive: { color: '#FFF' },
+    toggleStatusTxt: { fontSize: 12, color: '#666', textAlign: 'center', fontStyle: 'italic' },
+
+    // Reset
+    resetBtn: {
+        flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+        paddingVertical: 10, borderRadius: 6,
+        borderWidth: 1, borderColor: '#D32F2F',
     },
-    tableRow: {
+    resetBtnTxt: { color: '#D32F2F', fontWeight: '600', fontSize: 13 },
+
+    // Live product rows (RTGS rates display)
+    liveProductRow: {
         flexDirection: 'row',
-        paddingVertical: 8,
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        paddingVertical: 10,
         borderBottomWidth: 1,
         borderBottomColor: '#F5F5F5',
     },
-    tableHeader: {
-        fontSize: 12,
-        fontWeight: 'bold',
-        color: '#999',
-    },
-    tableCell: {
-        fontSize: 14,
-        color: '#333',
-    },
-    // Video / Form
-    label: {
-        fontSize: 14,
-        fontWeight: '600',
-        color: '#333',
-        marginBottom: 8,
-    },
+    liveProductName: { fontSize: 13, color: '#333', fontWeight: '600', flex: 1 },
+    liveProductVals: { flexDirection: 'row', gap: 16 },
+    liveProductValBox: { alignItems: 'flex-end' },
+    liveProductValLabel: { fontSize: 9, color: '#999', fontWeight: 'bold', textTransform: 'uppercase' },
+    liveProductVal: { fontSize: 15, color: '#1B5E20', fontWeight: 'bold' },
+
+    // Video / form
+    label: { fontSize: 14, fontWeight: '600', color: '#333', marginBottom: 8 },
     input: {
-        borderWidth: 1,
-        borderColor: '#DDD',
-        borderRadius: 5,
-        padding: 10,
-        marginBottom: 15,
-        backgroundColor: '#FAFAFA',
+        borderWidth: 1, borderColor: '#DDD', borderRadius: 5,
+        padding: 10, marginBottom: 15, backgroundColor: '#FAFAFA',
     },
     videoItem: {
-        backgroundColor: '#FAFAFA',
-        padding: 10,
-        borderRadius: 5,
-        marginBottom: 10,
-        borderWidth: 1,
-        borderColor: '#EEE',
+        backgroundColor: '#FAFAFA', padding: 10, borderRadius: 5,
+        marginBottom: 10, borderWidth: 1, borderColor: '#EEE',
     },
     dashedBtn: {
-        borderWidth: 1,
-        borderColor: '#DDD',
-        borderStyle: 'dashed',
-        padding: 12,
-        borderRadius: 5,
-        alignItems: 'center',
+        borderWidth: 1, borderColor: '#DDD', borderStyle: 'dashed',
+        padding: 12, borderRadius: 5, alignItems: 'center',
     },
-    primaryBtn: {
-        backgroundColor: '#1976D2',
-        padding: 12,
-        borderRadius: 5,
-        alignItems: 'center',
-    },
-    primaryBtnTxt: {
-        color: '#FFF',
-        fontWeight: 'bold',
-    },
-    secondaryBtn: {
-        backgroundColor: '#FFA000',
-        padding: 12,
-        borderRadius: 5,
-        alignItems: 'center',
-    },
-    secondaryBtnTxt: {
-        color: '#FFF',
-        fontWeight: 'bold',
-    },
-    // Modal
-    modalOverlay: {
-        flex: 1,
-        backgroundColor: 'rgba(0,0,0,0.5)',
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    modalContent: {
-        width: '90%',
-        backgroundColor: '#FFF',
-        borderRadius: 10,
-        padding: 20,
-        elevation: 10,
-    },
-    modalTitle: {
-        fontSize: 18,
-        fontWeight: 'bold',
-        marginBottom: 10,
-        color: '#333',
-    },
-    modalSubtitle: {
-        fontSize: 12,
-        color: '#666',
-        marginBottom: 20,
-    },
-    scopeContainer: {
-        marginBottom: 15,
-        borderWidth: 1,
-        borderColor: '#1976D2',
-        borderRadius: 5,
-        overflow: 'hidden',
-    },
-    scopeBtn: {
-        paddingVertical: 10,
-        paddingHorizontal: 15,
-        borderBottomWidth: 1,
-        borderBottomColor: '#EEE',
-    },
-    scopeBtnActive: {
-        backgroundColor: '#E3F2FD',
-    },
-    scopeBtnTxt: {
-        color: '#333',
-    },
-    scopeBtnTxtActive: {
-        color: '#1976D2',
-        fontWeight: 'bold',
-    },
-    modalInput: {
-        borderWidth: 1,
-        borderColor: '#DDD',
-        borderRadius: 5,
-        padding: 10,
-        fontSize: 16,
-        marginBottom: 20,
-    },
-    modalActions: {
-        flexDirection: 'row',
-        justifyContent: 'flex-end',
-        alignItems: 'center',
-    },
-    cancelBtnTxt: {
-        color: '#666',
-        marginRight: 20,
-        fontWeight: '600',
-    },
-    applyBtn: {
-        paddingVertical: 10,
-        paddingHorizontal: 20,
-        borderRadius: 5,
-    },
-    applyBtnTxt: {
-        color: '#FFF',
-        fontWeight: 'bold',
-    },
-    // New Login Styles
+    primaryBtn: { backgroundColor: '#1976D2', padding: 12, borderRadius: 5, alignItems: 'center' },
+    primaryBtnTxt: { color: '#FFF', fontWeight: 'bold' },
+    secondaryBtn: { backgroundColor: '#FFA000', padding: 12, borderRadius: 5, alignItems: 'center' },
+    secondaryBtnTxt: { color: '#FFF', fontWeight: 'bold' },
+
+    // Login
     loginContainer: {
-        flex: 1,
-        padding: 20,
-        backgroundColor: '#FFF',
-        justifyContent: 'center',
+        flex: 1, padding: 20, backgroundColor: '#FFF', justifyContent: 'center',
     },
-    backButton: {
-        position: 'absolute',
-        top: 20,
-        left: 20,
-        zIndex: 10,
-    },
+    backButton: { position: 'absolute', top: 20, left: 20, zIndex: 10 },
     signInTitle: {
-        fontSize: 28,
-        fontWeight: 'bold',
-        color: '#333',
-        marginBottom: 40,
-        textAlign: 'center',
+        fontSize: 28, fontWeight: 'bold', color: '#333',
+        marginBottom: 40, textAlign: 'center',
     },
     inputContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        borderWidth: 1,
-        borderColor: '#E0E0E0',
-        borderRadius: 12,
-        paddingHorizontal: 15,
-        paddingVertical: 12,
-        marginBottom: 20,
+        flexDirection: 'row', alignItems: 'center',
+        borderWidth: 1, borderColor: '#E0E0E0', borderRadius: 12,
+        paddingHorizontal: 15, paddingVertical: 12, marginBottom: 15,
         backgroundColor: '#FAFAFA',
     },
-    inputIcon: {
-        marginRight: 10,
-    },
-    inputField: {
-        flex: 1,
-        fontSize: 16,
-        color: '#333',
-    },
-    forgotPassword: {
-        alignItems: 'flex-end',
-        marginBottom: 30,
-    },
-    forgotPasswordText: {
-        color: '#1976D2',
-        fontWeight: '600',
-    },
+    inputIcon: { marginRight: 10 },
+    inputField: { flex: 1, fontSize: 16, color: '#333' },
     signInButton: {
-        backgroundColor: '#1976D2',
-        paddingVertical: 16,
-        borderRadius: 12,
-        alignItems: 'center',
-        shadowColor: '#1976D2',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.3,
-        shadowRadius: 8,
-        elevation: 5,
+        backgroundColor: '#880E4F', paddingVertical: 16,
+        borderRadius: 12, alignItems: 'center', marginTop: 10,
     },
-    signInButtonText: {
-        color: '#FFF',
-        fontSize: 18,
-        fontWeight: 'bold',
-    },
+    signInButtonText: { color: '#FFF', fontWeight: 'bold', fontSize: 16 },
 });
 
 export default AdminScreen;
